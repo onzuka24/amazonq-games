@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minesweeper Online</title>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js" defer></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        .game-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+            max-width: 800px;
+            width: 100%;
+        }
+        
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        
+        input {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        
+        .game-board {
+            display: grid;
+            grid-template-columns: repeat(var(--grid-size), 30px);
+            grid-gap: 2px;
+            margin: 0 auto;
+        }
+        
+        .cell {
+            width: 30px;
+            height: 30px;
+            background-color: #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .cell.revealed {
+            background-color: #f9f9f9;
+        }
+        
+        .cell.mine {
+            background-color: #ff6b6b;
+        }
+        
+        .cell.flagged {
+            background-color: #ffcc00;
+        }
+        
+        .status {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .win {
+            color: #4CAF50;
+        }
+        
+        .lose {
+            color: #ff6b6b;
+        }
+        
+        .game-id {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            font-family: monospace;
+            text-align: center;
+        }
+        
+        .instructions {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+        }
+        
+        /* Cell colors based on adjacent mines */
+        .cell[data-value="1"] { color: blue; }
+        .cell[data-value="2"] { color: green; }
+        .cell[data-value="3"] { color: red; }
+        .cell[data-value="4"] { color: darkblue; }
+        .cell[data-value="5"] { color: brown; }
+        .cell[data-value="6"] { color: teal; }
+        .cell[data-value="7"] { color: black; }
+        .cell[data-value="8"] { color: gray; }
+    </style>
+</head>
+<body>
+    <h1>Minesweeper Online</h1>
+    
+    <div class="game-container" x-data="minesweeperGame()">
+        <div class="controls">
+            <div>
+                <label for="width">Width:</label>
+                <input type="number" id="width" x-model.number="width" min="5" max="30" :disabled="connected">
+            </div>
+            <div>
+                <label for="height">Height:</label>
+                <input type="number" id="height" x-model.number="height" min="5" max="30" :disabled="connected">
+            </div>
+            <div>
+                <label for="mines">Mines:</label>
+                <input type="number" id="mines" x-model.number="mines" min="1" :max="maxMines" :disabled="connected">
+            </div>
+            <button @click="createGame()" :disabled="connected && !gameOver">New Game</button>
+            <button @click="restartGame()" :disabled="!connected || !gameId">Restart</button>
+        </div>
+        
+        <div x-show="!connected && !connecting">
+            <div>
+                <label for="game-id">Join existing game:</label>
+                <input type="text" id="game-id" x-model="joinGameId" placeholder="Enter Game ID">
+                <button @click="joinGame()">Join</button>
+            </div>
+        </div>
+        
+        <div x-show="connecting">
+            Connecting to server...
+        </div>
+        
+        <div x-show="connected">
+            <div class="game-id" x-show="gameId">
+                Game ID: <span x-text="gameId"></span>
+                <button @click="copyGameId()">Copy</button>
+            </div>
+            
+            <div class="status" x-show="gameOver">
+                <div x-show="win" class="win">You Win! 🎉</div>
+                <div x-show="!win" class="lose">Game Over! 💣</div>
+            </div>
+            
+            <div class="game-board" :style="'--grid-size: ' + width">
+                <template x-for="cell in cells" :key="cell.x + '-' + cell.y">
+                    <div 
+                        class="cell" 
+                        :class="{
+                            'revealed': cell.revealed,
+                            'mine': cell.revealed && cell.value === -1,
+                            'flagged': cell.flagged
+                        }"
+                        :data-value="cell.revealed ? cell.value : ''"
+                        @click="revealCell(cell.x, cell.y)"
+                        @contextmenu.prevent="flagCell(cell.x, cell.y)"
+                        x-text="getCellDisplay(cell)"
+                    ></div>
+                </template>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>How to Play:</h3>
+            <ul>
+                <li>Left-click to reveal a cell</li>
+                <li>Right-click to flag/unflag a cell</li>
+                <li>Share the Game ID with friends to play together</li>
+            </ul>
+        </div>
+    </div>
+    
+    <script>
+        function minesweeperGame() {
+            return {
+                socket: null,
+                connected: false,
+                connecting: false,
+                gameId: null,
+                joinGameId: '',
+                width: 10,
+                height: 10,
+                mines: 15,
+                cells: [],
+                gameOver: false,
+                win: false,
+                
+                get maxMines() {
+                    return Math.floor(this.width * this.height / 3);
+                },
+                
+                init() {
+                    this.connectToServer();
+                },
+                
+                connectToServer() {
+                    this.connecting = true;
+                    
+                    // Use secure WebSocket if the page is served over HTTPS
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const host = window.location.hostname || 'localhost';
+                    const port = 8765;
+                    
+                    this.socket = new WebSocket(`${protocol}//${host}:${port}`);
+                    
+                    this.socket.onopen = () => {
+                        this.connecting = false;
+                        console.log('Connected to server');
+                    };
+                    
+                    this.socket.onclose = () => {
+                        this.connected = false;
+                        this.connecting = false;
+                        console.log('Disconnected from server');
+                        
+                        // Try to reconnect after a delay
+                        setTimeout(() => {
+                            if (!this.connected) {
+                                this.connectToServer();
+                            }
+                        }, 3000);
+                    };
+                    
+                    this.socket.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                    };
+                    
+                    this.socket.onmessage = (event) => {
+                        this.handleMessage(JSON.parse(event.data));
+                    };
+                },
+                
+                handleMessage(message) {
+                    console.log('Received message:', message);
+                    
+                    switch (message.type) {
+                        case 'game_created':
+                            this.gameId = message.game_id;
+                            this.connected = true;
+                            break;
+                            
+                        case 'game_joined':
+                            this.gameId = message.game_id;
+                            this.connected = true;
+                            break;
+                            
+                        case 'state':
+                            this.updateGameState(message.state);
+                            break;
+                            
+                        case 'error':
+                            alert('Error: ' + message.message);
+                            break;
+                    }
+                },
+                
+                updateGameState(state) {
+                    this.width = state.width;
+                    this.height = state.height;
+                    this.mines = state.mines;
+                    this.gameOver = state.game_over;
+                    this.win = state.win;
+                    
+                    // Convert cells array to a more usable format
+                    this.cells = state.cells;
+                },
+                
+                createGame() {
+                    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                        this.socket.send(JSON.stringify({
+                            action: 'create_game',
+                            width: this.width,
+                            height: this.height,
+                            mines: this.mines
+                        }));
+                    } else {
+                        this.connectToServer();
+                        setTimeout(() => this.createGame(), 500);
+                    }
+                },
+                
+                joinGame() {
+                    if (!this.joinGameId) {
+                        alert('Please enter a Game ID');
+                        return;
+                    }
+                    
+                    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                        this.socket.send(JSON.stringify({
+                            action: 'join_game',
+                            game_id: this.joinGameId
+                        }));
+                    } else {
+                        this.connectToServer();
+                        setTimeout(() => this.joinGame(), 500);
+                    }
+                },
+                
+                revealCell(x, y) {
+                    if (this.gameOver) return;
+                    
+                    this.socket.send(JSON.stringify({
+                        action: 'reveal',
+                        x: x,
+                        y: y
+                    }));
+                },
+                
+                flagCell(x, y) {
+                    if (this.gameOver) return;
+                    
+                    this.socket.send(JSON.stringify({
+                        action: 'flag',
+                        x: x,
+                        y: y
+                    }));
+                },
+                
+                restartGame() {
+                    this.socket.send(JSON.stringify({
+                        action: 'restart'
+                    }));
+                },
+                
+                getCellDisplay(cell) {
+                    if (cell.flagged) {
+                        return '🚩';
+                    }
+                    
+                    if (!cell.revealed) {
+                        return '';
+                    }
+                    
+                    if (cell.value === -1) {
+                        return '💣';
+                    }
+                    
+                    return cell.value > 0 ? cell.value : '';
+                },
+                
+                copyGameId() {
+                    navigator.clipboard.writeText(this.gameId)
+                        .then(() => alert('Game ID copied to clipboard!'))
+                        .catch(err => console.error('Failed to copy:', err));
+                }
+            };
+        }
+    </script>
+</body>
+</html>
